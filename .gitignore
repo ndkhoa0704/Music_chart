@@ -127,3 +127,9 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Airflow
+airflow_docker
+
+# Spark
+spark_docker
