@@ -62,7 +62,7 @@ x-airflow-common:
     AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth'
     _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:-}
   volumes:
-    - ./airflow_docker/dags:/opt/airflow/dags
+    - ./src:/opt/airflow/dags
     - ./airflow_docker/logs:/opt/airflow/logs
     - ./airflow_docker/plugins:/opt/airflow/plugins
   user: "${AIRFLOW_UID:-50000}:0"
@@ -81,6 +81,7 @@ x-spark-common: &spark-common
   volumes:
     - ./spark_docker/app:/opt/spark-apps
     - ./spark_docker/data:/opt/spark-data
+  restart: always
 
 services:
   postgres:
