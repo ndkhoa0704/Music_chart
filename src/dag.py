@@ -1,15 +1,22 @@
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.operators.empty import EmptyOperator
-from tasks.test_conn import test_mongo, test_spark
+from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
+
 import pendulum
 from datetime import timedelta
 
+from tasks.test_conn import test_mongo
+
+import os
+
+CUR_DIR = os.path.abspath(os.path.dirname(__file__))
 
 default_args = {
     'retries': 3,
     'retry_delay': timedelta(seconds=30)
 }
+
 
 
 with DAG(
@@ -29,12 +36,10 @@ with DAG(
         }
     )
 
-    test_spark_task = PythonOperator(
+    test_spark_task = SparkSubmitOperator(
         task_id='test_spark',
-        python_callable=test_spark,
-        op_kwargs={
-            'conn_id': 'spark_conn'
-        }
+        application=f'{CUR_DIR}/spark_job/test.py',
+        conn_id='spark_conn'
     )
 
     test_mysql_task = EmptyOperator(

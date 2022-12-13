@@ -141,6 +141,10 @@ services:
 
   airflow-worker:
     <<: *airflow-common
+    image: apache/airflow-spark:2.5.0
+    build:
+      context: .
+      dockerfile: Dockerfile.airflowworker
     command: celery worker
     healthcheck:
       test:
