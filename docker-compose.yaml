@@ -340,5 +340,12 @@ services:
       - SPARK_WORKLOAD=worker
       - SPARK_LOCAL_IP=spark-worker-b
   
+  mysqldb:
+    image: mysql:8.0.31
+    ports:
+      - 3306:3306
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+
 volumes:
   postgres-db-volume:
