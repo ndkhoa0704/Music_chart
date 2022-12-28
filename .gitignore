@@ -133,3 +133,6 @@ airflow_docker
 
 # Spark
 spark_docker
+
+# vscode 
+.vscode
