@@ -18,7 +18,7 @@ PYTHONHASHSEED=1
 RUN wget --no-verbose -O apache-spark.tgz "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz" \
 && mkdir -p /opt/spark \
 && tar -xf apache-spark.tgz -C /opt/spark --strip-components=1 \
-&& apt-get -y install openjdk-11-jdk
+&& apt-get -y install openjdk-11-jdk && rm apache-spark.tgz
 
 # Apache spark environment
 
@@ -45,8 +45,12 @@ ln -sf /dev/stdout $SPARK_WORKER_LOG
 COPY start-spark.sh /
 
 CMD ["/bin/bash", "/start-spark.sh"]
+RUN rm /start-spark.sh
 
 COPY requirements.txt .
 
 USER airflow
 RUN pip install -r requirements.txt
+
+USER root
+RUN rm requirements.txt

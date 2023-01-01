@@ -1,16 +1,19 @@
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
+from airflow.models import Variable
 import pendulum
 from datetime import timedelta
 
-from src.tasks import soundcloud
-from src.tasks import spotify
+from airflow_dags.tasks import soundcloud
+from airflow_dags.tasks import spotify
 
 import os
 
 # Connection
 MONGO_CONN_ID = 'mongo_conn'
+SPARK_CONN_ID = 'spark_conn'
+
 
 
 CUR_DIR = os.path.abspath(os.path.dirname(__file__))
@@ -31,11 +34,6 @@ with DAG(
     default_args=default_args
 ):
 
-    sc_get_client_id = PythonOperator(
-        task_id='soundcloud_GetClientId',
-        python_callable=soundcloud.get_client_id
-    )
-
     sc_fetch_data = PythonOperator(
         task_id='soundcloud_FetchMongo',
         python_callable=soundcloud.fetch_to_mongo,
@@ -45,19 +43,11 @@ with DAG(
                 'offset': 20,
                 'genre': 'soundcloud%3Agenres%3Aall-music',
                 'kind': 'top',
-                'limit': 100,
-                'client_id': '{{ ti.xcom_pull(task_ids="soundcloud_GetClientId") }}'
+                'limit': 100
             },
-            'mongo_conn_id': MONGO_CONN_ID
-        }
-    )
-
-    sp_get_access_token = PythonOperator(
-        task_id='spotify_getAccessToken',
-        python_callable=spotify.get_access_token,
-        op_kwargs={
-            'client_id': '{{ var.json.spotify_cred.client_id }}',
-            'client_secret': '{{ var.json.spotify_cred.client_secret }}'
+            'mongo_conn_id': MONGO_CONN_ID,
+            'collection': 'soundcloud',
+            'schema': 'music_chart'
         }
     )
 
@@ -70,9 +60,26 @@ with DAG(
             'url_params':{
                 'limit': 50
             },
-            'mongo_conn_id': MONGO_CONN_ID
+            'mongo_conn_id': MONGO_CONN_ID,
+            'collection': 'spotify',
+            'schema': 'music_chart',
+            'client_payload': Variable.get('spotify_cred', deserialize_json=True)
         }
     )
 
-    sc_get_client_id >> sc_fetch_data
-    sp_get_access_token >> sp_fetch_data
+    transform = SparkSubmitOperator(
+        task_id='transform_data',
+        conn_id=SPARK_CONN_ID,
+        conf={
+            'spark.mongodb.input.uri': (
+                'mongodb://{{{{ conn.{T}.login  }}}}@'
+                '{{{{ conn.{T}.host  }}}}:'
+                '{{{{ conn.{T}.port  }}}}/'
+                '{{{{ conn.{T}.schema }}}}'
+            ).format(T=MONGO_CONN_ID)
+        },
+        application=f'{CUR_DIR}/../spark_job/transform.py',
+        application_args=[]
+    )
+
+    transform.set_upstream([sc_fetch_data, sp_fetch_data])

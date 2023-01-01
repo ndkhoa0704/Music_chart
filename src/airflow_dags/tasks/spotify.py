@@ -1,4 +1,4 @@
-from src.common.utils import json_path, add_url_params
+from common.utils import json_path, add_url_params
 import requests
 import logging
 from airflow.providers.mongo.hooks.mongo import MongoHook
@@ -14,15 +14,13 @@ def _make_requests(url: str, method: str,  *args, **kwargs):
     return response.content
 
 
-def get_access_token(client_id: str, client_secret: str) -> str:
+def _get_access_token(client_payload: dict) -> str:
     '''
     Get spotify access token
     '''
-    print(client_id)
-    print(client_secret)
     headers = {
         'Authorization': f'Basic ' + \
-            base64.b64encode(f'{client_id}:{client_secret}'.encode('ascii')).decode('ascii')
+            base64.b64encode(f'{client_payload["client_id"]}:{client_payload["client_secret"]}'.encode('ascii')).decode('ascii')
     }
     data = {
         'grant_type': 'client_credentials'
@@ -32,14 +30,21 @@ def get_access_token(client_id: str, client_secret: str) -> str:
     return access_token
 
 
-def fetch_to_mongo(url: str, mongo_conn_id: str, access_token: str, url_params: dict=None):
+def fetch_to_mongo(
+    url: str, 
+    mongo_conn_id: str, 
+    collection: str, 
+    schema: str,
+    client_payload: dict,
+    url_params: dict=None
+):
     with MongoHook(conn_id=mongo_conn_id).get_conn() as client:
-        db = client['spotify']
-        collection = db['chart']
+        db = client[schema]
+        coll = db[collection]
         headers = {
-            'Authorization': f'Bearer {access_token}' 
+            'Authorization': f'Bearer {_get_access_token(client_payload)}' 
         }
         complete_url = add_url_params(url, url_params)
         response = _make_requests(complete_url, 'GET', headers=headers)
         json_data = json.loads(response)
-        collection.insert_one(json_data)
+        coll.insert_one(json_data)
