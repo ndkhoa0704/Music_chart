@@ -1,4 +1,4 @@
-from common.utils import json_path, add_url_params
+from music_chart.common.utils import json_path, add_url_params
 import requests
 import logging
 from airflow.providers.mongo.hooks.mongo import MongoHook
@@ -14,7 +14,7 @@ def _make_requests(url: str, method: str,  *args, **kwargs):
     return response.content
 
 
-def _get_access_token(client_payload: dict) -> str:
+def get_access_token(client_payload: dict) -> str:
     '''
     Get spotify access token
     '''
@@ -27,24 +27,30 @@ def _get_access_token(client_payload: dict) -> str:
     }
     response = _make_requests('https://accounts.spotify.com/api/token', 'POST', headers=headers, data=data)
     access_token = json_path('access_token', json.loads(response))
+    logging.info('ACCESS TOKEN: {}'.format(access_token)) # TEST
     return access_token
 
 
-def fetch_to_mongo(
+def fetch_top_tracks(
     url: str, 
     mongo_conn_id: str, 
     collection: str, 
     schema: str,
-    client_payload: dict,
+    access_token: str,
+    ts,
     url_params: dict=None
 ):
+    '''
+    Fetch top tracks to mongodb
+    '''
     with MongoHook(conn_id=mongo_conn_id).get_conn() as client:
         db = client[schema]
         coll = db[collection]
         headers = {
-            'Authorization': f'Bearer {_get_access_token(client_payload)}' 
+            'Authorization': f'Bearer {access_token}' 
         }
         complete_url = add_url_params(url, url_params)
         response = _make_requests(complete_url, 'GET', headers=headers)
         json_data = json.loads(response)
+        json_data['data_time'] = ts # Assign dag run time
         coll.insert_one(json_data)

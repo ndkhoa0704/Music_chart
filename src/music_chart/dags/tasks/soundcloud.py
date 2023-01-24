@@ -1,7 +1,7 @@
 import requests
 import re
 import json
-from common.utils import json_path, add_url_params
+from music_chart.common.utils import json_path, add_url_params
 import logging
 from airflow.providers.mongo.hooks.mongo import MongoHook        
 from airflow.exceptions import AirflowSkipException
@@ -27,7 +27,7 @@ def _make_requests(url: str, method: str, *args, **kwargs):
     return response.content
 
 
-def _get_client_id() -> str:
+def get_client_id() -> str:
     '''
     Get client_id required by soundcloud
     '''
@@ -45,19 +45,28 @@ def _get_client_id() -> str:
         else: 
             client_id = js_file[client_id_idx + 12: client_id_idx + 44]
             break
+    logging.info('CLIENT ID: {}'.format(client_id)) # TEST
     return client_id
 
 
-def fetch_to_mongo(url: str, mongo_conn_id: str, collection: str, schema: str, url_params: dict=None):
+def fetch_top_tracks(
+        url: str, 
+        mongo_conn_id: str, 
+        collection: str, 
+        schema: str, 
+        ts,
+        client_id,
+        url_params: dict=None
+):
     '''
-    Fetch json data from url and store them to mongodb
+    Fetch top tracks to mongodb
     '''
     params = url_params
     with MongoHook(conn_id=mongo_conn_id).get_conn() as client:
         db = client[schema]
         coll = db[collection]
         while True:
-            params['client_id'] = _get_client_id()
+            params['client_id'] = client_id
             complete_url = add_url_params(url, params)
             response = _make_requests(complete_url, 'GET')
             if response == 403: # CLient error
@@ -65,4 +74,5 @@ def fetch_to_mongo(url: str, mongo_conn_id: str, collection: str, schema: str, u
                 continue
             break
         json_data = json.loads(response)
+        json_data['data_time'] = ts # Assign dag run time
         coll.insert_one(json_data)
