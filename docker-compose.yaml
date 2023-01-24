@@ -65,7 +65,6 @@ x-airflow-common:
     - ./src:/opt/airflow/dags
     - ./airflow_docker/logs:/opt/airflow/logs
     - ./airflow_docker/plugins:/opt/airflow/plugins
-    - ./
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
     &airflow-common-depends-on
@@ -297,8 +296,8 @@ services:
       - 27017:27017
     restart: always
     environment:
-      MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: root
+      MONGO_INITDB_ROOT_USERNAME: "${MONGO_ROOT_USERNAME}"
+      MONGO_INITDB_ROOT_PASSWORD: "${MONGO_ROOT_PASSWORD}"
 
   spark-master:
     <<: *spark-common
@@ -346,7 +345,7 @@ services:
     ports:
       - 3306:3306
     environment:
-      MYSQL_ROOT_PASSWORD: root
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD}"
     restart: always
 
 volumes:

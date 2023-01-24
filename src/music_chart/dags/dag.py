@@ -18,7 +18,6 @@ SPARK_CONN_ID = 'spark_conn'
 SPARK_JOBS_DIR = f'{os.path.abspath(os.path.dirname(__file__))}/../spark_job'
 
 
-
 default_args = {
     'retries': 3,
     'retry_delay': timedelta(seconds=30)
