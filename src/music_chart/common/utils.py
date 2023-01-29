@@ -25,9 +25,6 @@ def json_path(path: str, json_data: dict):
     '''
     Get item from json data based on user defined path
     '''
-    # if not isinstance(json_data, dict) or isinstance(json_data, list):
-    #     raise Exception('Not a valid json')
-    # logging.info('JSON path: %s' % path)
     if path is None: # End recursion
         return json_data
     
@@ -61,16 +58,22 @@ def json_path(path: str, json_data: dict):
     return json_path(next_path, json_data)
 
 
-def get_uri(conn_id: str, conn_type: str=None):
+def get_uri(conn_id: str, conn_type: str=None, include_user_pwd: bool=True, jdbc: bool=False):
     '''
     Get uri of a connection
     '''
     conn = BaseHook().get_connection(conn_id)
     if conn_type == 'mongo':
         conn.conn_type = 'mongodb'
-        return conn.get_uri()
-    else:
-        return conn.get_uri()
+    
+    uri = conn.get_uri()
+    if jdbc:
+        uri = 'jdbc:' + uri
+
+    if not include_user_pwd and conn.login is not None and conn.password is not None:
+        uri = uri.replace(uri[uri.rfind('/') + 1:uri.rfind('@') + 1],'')
+
+    return uri
     
     
 def flatten(data: list):

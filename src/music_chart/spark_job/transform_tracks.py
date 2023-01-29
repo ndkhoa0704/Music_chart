@@ -1,7 +1,6 @@
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as f
 import argparse
-import logging
 
 
 def main(args):
@@ -28,7 +27,7 @@ def main(args):
         .withColumn('duration', f.col('collection.track.duration')) \
         .withColumn('source', f.lit('soundcloud')) \
         .withColumn('release_date', f.to_timestamp(
-            f.when(f.col('collection.track.release_date').isNull(), None) \
+            f.when(f.col('collection.track.release_date').isNotNull(), f.col('collection.track.release_date')) \
             .otherwise(f.col('collection.track.created_at')))) \
         .withColumn('popularity', f.col('collection.track.likes_count')) \
         .drop('collection')
@@ -57,14 +56,13 @@ def main(args):
     df = df1.union(df2)
 
     del df1, df2
-    logging.info('Writing data...')
 
     df.write.mode('overwrite').format('jdbc') \
     .option("driver","com.mysql.cj.jdbc.Driver") \
-    .option("url", "jdbc:mysql://mysqldb:3306") \
+    .option("url", args.mysql_uri) \
     .option("dbtable", "music_chart.tracks") \
-    .option("user", "root") \
-    .option("password", "root").save()
+    .option("user", args.mysql_login) \
+    .option("password", args.mysql_password).save()
 
     del df
 
@@ -73,5 +71,7 @@ if __name__=='__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--mysql_uri', dest='mysql_uri')
     parser.add_argument('--mongo_uri', dest='mongo_uri')
+    parser.add_argument('--mysql_login', dest='mysql_login')
+    parser.add_argument('--mysql_password', dest='mysql_password')
     parser.add_argument('--runtime', dest='runtime')
     main(parser.parse_args())

@@ -11,6 +11,7 @@ from music_chart.dags.tasks import spotify
 import os
 
 
+
 # Connection
 MONGO_CONN_ID = 'mongo_conn'
 SPARK_CONN_ID = 'spark_conn'
@@ -75,7 +76,10 @@ with DAG(
     with TaskGroup('spotify') as spotify_group:
         fetch_creds_task = PythonOperator(
             task_id='get_access_token',
-            python_callable=spotify.get_access_token
+            python_callable=spotify.get_access_token,
+            op_kwargs={
+                'client_payload': '{{ conn.spotify_creds.password }}'
+            }
         )
 
         fetch_top_tracks_task = PythonOperator(
@@ -120,10 +124,11 @@ with DAG(
         ),
         application_args=[
             '--mongo_uri', get_uri(MONGO_CONN_ID, conn_type='mongo'),
-            '--mysql_uri', get_uri(MYSQL_CONN_ID),
+            '--mysql_uri', get_uri(MYSQL_CONN_ID, jdbc=True, include_user_pwd=False),
+            '--mysql_login', '{{ conn.mysql_conn.login }}',
+            '--mysql_password', '{{ conn.mysql_conn.password }}',
             '--runtime', '{{ ts }}'
-        ],
-        retries=0
+        ]
     )
 
     transform_artists_task = SparkSubmitOperator(
@@ -137,11 +142,13 @@ with DAG(
         ),
         application_args=[
             '--mongo_uri', get_uri(MONGO_CONN_ID, conn_type='mongo'),
-            '--mysql_uri', get_uri(MYSQL_CONN_ID),
+            '--mysql_uri', get_uri(MYSQL_CONN_ID, include_user_pwd=False, jdbc=True),
+            '--mysql_login', '{{ conn.mysql_conn.login }}',
+            '--mysql_password', '{{ conn.mysql_conn.password }}',
             '--runtime', '{{ ts }}'
-        ],
-        retries=0
+        ]
     )
+
 
     [spotify_group, soundcloud_group] >> clear_warehouse_task >> \
     [transform_tracks_task, transform_artists_task] >> cleanup_group

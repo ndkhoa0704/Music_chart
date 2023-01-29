@@ -19,14 +19,14 @@ def _make_requests(url: str, method: str,  *args, **kwargs):
     return response.content
 
 
-def get_access_token(ti) -> str:
+def get_access_token(ti, client_payload) -> str:
     '''
     Get spotify access token
     '''
-    client_payload = Variable.get('spotify_cred', deserialize_json=True)
+    payload = json.loads(client_payload)
     headers = {
         'Authorization': f'Basic ' + \
-            base64.b64encode(f'{client_payload["client_id"]}:{client_payload["client_secret"]}'.encode('ascii')).decode('ascii')
+            base64.b64encode(f'{payload["client_id"]}:{payload["client_secret"]}'.encode('ascii')).decode('ascii')
     }
     data = {
         'grant_type': 'client_credentials'
