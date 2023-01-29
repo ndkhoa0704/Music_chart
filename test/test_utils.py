@@ -1,5 +1,5 @@
 import pytest
-from common.utils import json_path
+from music_chart.common.utils import json_path
 
 @pytest.fixture
 def json_path_data1():

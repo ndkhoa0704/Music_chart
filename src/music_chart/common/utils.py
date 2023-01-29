@@ -1,14 +1,13 @@
 import re
-import logging
 from airflow.hooks.base import BaseHook
 from airflow.utils.db import provide_session
-from airflow.models import XCom
+from airflow.models.xcom import XCom
+import itertools
 
 
 @provide_session
-def cleanup_xcom(context, session=None):
-    dag_id = context["ti"]["dag_id"]
-    session.query(XCom).filter(XCom.dag_id == dag_id).delete()
+def cleanup_xcom(ti, session=None):
+    session.query(XCom).filter(XCom.dag_id == ti.dag_id).delete()
 
 
 def add_url_params(url: str, params):
@@ -28,7 +27,7 @@ def json_path(path: str, json_data: dict):
     '''
     # if not isinstance(json_data, dict) or isinstance(json_data, list):
     #     raise Exception('Not a valid json')
-    logging.info('JSON path: %s' % path)
+    # logging.info('JSON path: %s' % path)
     if path is None: # End recursion
         return json_data
     
@@ -62,13 +61,20 @@ def json_path(path: str, json_data: dict):
     return json_path(next_path, json_data)
 
 
-def get_uri(conn_id: str, conn_type: str):
+def get_uri(conn_id: str, conn_type: str=None):
     '''
-    Get uri of a mongodb connection
+    Get uri of a connection
     '''
     conn = BaseHook().get_connection(conn_id)
     if conn_type == 'mongo':
         conn.conn_type = 'mongodb'
         return conn.get_uri()
     else:
-        raise NotImplementedError
+        return conn.get_uri()
+    
+    
+def flatten(data: list):
+    '''
+    Flatten 2d list to 1d list
+    '''
+    return list(itertools.chain.from_iterable(data))

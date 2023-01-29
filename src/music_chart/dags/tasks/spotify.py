@@ -1,9 +1,14 @@
-from music_chart.common.utils import json_path, add_url_params
+from music_chart.common.utils import (
+    json_path, add_url_params, get_uri, flatten
+)
 import requests
 import logging
 from airflow.providers.mongo.hooks.mongo import MongoHook
+from airflow.models import Variable
 import json
 import base64
+from pymongo import MongoClient
+from time import sleep
 
 
 def _make_requests(url: str, method: str,  *args, **kwargs):
@@ -14,10 +19,11 @@ def _make_requests(url: str, method: str,  *args, **kwargs):
     return response.content
 
 
-def get_access_token(client_payload: dict) -> str:
+def get_access_token(ti) -> str:
     '''
     Get spotify access token
     '''
+    client_payload = Variable.get('spotify_cred', deserialize_json=True)
     headers = {
         'Authorization': f'Basic ' + \
             base64.b64encode(f'{client_payload["client_id"]}:{client_payload["client_secret"]}'.encode('ascii')).decode('ascii')
@@ -27,25 +33,28 @@ def get_access_token(client_payload: dict) -> str:
     }
     response = _make_requests('https://accounts.spotify.com/api/token', 'POST', headers=headers, data=data)
     access_token = json_path('access_token', json.loads(response))
-    logging.info('ACCESS TOKEN: {}'.format(access_token)) # TEST
-    return access_token
+
+    ti.xcom_push(key='spotify_access_token', value=access_token)
 
 
 def fetch_top_tracks(
-    url: str, 
     mongo_conn_id: str, 
-    collection: str, 
-    schema: str,
-    access_token: str,
+    collname: str, 
+    dbname: str,
     ts,
-    url_params: dict=None
+    ti
 ):
     '''
     Fetch top tracks to mongodb
     '''
+    url = 'https://api.spotify.com/v1/playlists/37i9dQZEVXbNG2KDcFcKOF/tracks'
+    url_params = {
+        'limit': 50
+    }
+    access_token = ti.xcom_pull(task_ids='spotify.get_access_token', key='spotify_access_token')
     with MongoHook(conn_id=mongo_conn_id).get_conn() as client:
-        db = client[schema]
-        coll = db[collection]
+        db = client[dbname]
+        coll = db[collname]
         headers = {
             'Authorization': f'Bearer {access_token}' 
         }
@@ -54,3 +63,52 @@ def fetch_top_tracks(
         json_data = json.loads(response)
         json_data['data_time'] = ts # Assign dag run time
         coll.insert_one(json_data)
+
+
+def fetch_artists(
+    mongo_conn_id: str, 
+    dbname: str, 
+    tracks_collname: str, 
+    artists_collname: str, 
+    ts,
+    ti
+):
+    '''
+    Fetch artists' data to mongodb
+    '''
+    client = MongoClient(get_uri(mongo_conn_id, conn_type='mongo'))
+    db = client[dbname]
+    collection = db[tracks_collname]
+
+    pipeline = [
+        { '$match': { 'data_time': ts } },
+        { '$project': {"items.track.artists.href": 1, "_id": 0 }}
+    ]
+
+    for _ in range(10):
+        data = next(collection.aggregate(pipeline), None)
+        if data is not None:
+            break
+        sleep(0.05)
+    if data is None:
+        raise Exception('Cannot fetch tracks data')
+    hrefs = set(flatten(json_path('items.[*].track.artists.[*].href', data)))
+    
+    artists_data = []
+    collection = db[artists_collname]
+    access_token = ti.xcom_pull(task_ids='spotify.get_access_token', key='spotify_access_token')
+    headers = {
+        'Authorization': f'Bearer {access_token}' 
+    }
+    for i, url in enumerate(hrefs):
+        logging.info('Fetching: {}'.format(url))
+        response = _make_requests(url, 'GET', headers=headers)
+        json_data = json.loads(response)
+        json_data['data_time'] = ts # Assign dag run time
+        artists_data.append(json_data)
+        if i != 0 and i % 500 == 0: 
+            logging.info('Inserting')
+            collection.insert_many(artists_data)
+            artists_data.clear()
+    if artists_data:
+        collection.insert_many(artists_data)

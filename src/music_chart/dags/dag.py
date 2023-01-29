@@ -1,7 +1,7 @@
 from airflow import DAG
 from airflow.operators.python import PythonOperator
+from airflow.providers.mysql.operators.mysql import MySqlOperator
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
-from airflow.models import Variable
 from airflow.utils.task_group import TaskGroup
 import pendulum
 from datetime import timedelta
@@ -14,8 +14,13 @@ import os
 # Connection
 MONGO_CONN_ID = 'mongo_conn'
 SPARK_CONN_ID = 'spark_conn'
+MYSQL_CONN_ID = 'mysql_conn'
 
-SPARK_JOBS_DIR = f'{os.path.abspath(os.path.dirname(__file__))}/../spark_job'
+# Dir
+SPARK_JOBS_DIR = f'{os.path.abspath(os.path.dirname(__file__))}/../spark_job/'
+
+# Database
+MONGO_DB_NAME = 'music_chart'
 
 
 default_args = {
@@ -25,94 +30,118 @@ default_args = {
 
 
 with DAG(
-    dag_id='music_chart',
+    dag_id=MONGO_DB_NAME,
     schedule_interval='@daily',
     start_date=pendulum.datetime(2022, 9, 12, tz='Asia/Ho_Chi_Minh'),
     max_active_runs=5,
     catchup=False,
-    default_args=default_args,
-    on_success_callback=cleanup_xcom
+    default_args=default_args
 ):
-    # clean_lake_old_data = PythonOperator(
-    #     task_id='clean_lake_old_data',
-    #     python_callable=
-    # )
+    clear_warehouse_task = MySqlOperator(
+        task_id='clean_warehouse',
+        doc_md='''
+        Clean old data daily by timestamp
+        ''',
+        mysql_conn_id=MYSQL_CONN_ID,
+        sql='''
+        DELETE FROM music_chart.tracks WHERE data_time = '{{ ts }}'
+        '''
+    )
 
     with TaskGroup('soundcloud') as soundcloud_group:
-        fetch_creds = PythonOperator(
-            task_id='get_client_id',
-            python_callable=soundcloud.get_client_id,
-        )
-
-        fetch_top_tracks = PythonOperator(
+        fetch_top_tracks_task = PythonOperator(
             task_id='fetch_top_tracks',
             python_callable=soundcloud.fetch_top_tracks,
             op_kwargs={
-                'url': 'https://api-v2.soundcloud.com/charts',
-                'url_params': {
-                    'offset': 20,
-                    'genre': 'soundcloud%3Agenres%3Aall-music',
-                    'kind': 'top',
-                    'limit': 100
-                },
                 'mongo_conn_id': MONGO_CONN_ID,
-                'collection': 'soundcloud',
-                'schema': 'music_chart',
+                'collname': 'soundcloud_top_tracks',
+                'dbname': MONGO_DB_NAME
             }
         )
 
-        fetch_artists = PythonOperator(
+        fetch_artists_task = PythonOperator(
             task_id='fetch_artists',
-            python_callable=lambda: None
+            python_callable=soundcloud.fetch_artists,
+            op_kwargs={
+                'mongo_conn_id': MONGO_CONN_ID,
+                'dbname': MONGO_DB_NAME,
+                'tracks_collname': 'soundcloud_top_tracks',
+                'artists_collname': 'soundcloud_artists'
+            }
         )
 
-        fetch_creds >> [fetch_top_tracks, fetch_artists]
+        fetch_top_tracks_task >> fetch_artists_task
 
     with TaskGroup('spotify') as spotify_group:
-        fetch_creds = PythonOperator(
+        fetch_creds_task = PythonOperator(
             task_id='get_access_token',
-            python_callable=spotify.get_access_token, 
-            op_kwargs={
-                'client_payload': Variable.get('spotify_cred', deserialize_json=True)
-            }
+            python_callable=spotify.get_access_token
         )
 
-        fetch_top_tracks = PythonOperator(
+        fetch_top_tracks_task = PythonOperator(
             task_id='fetch_top_tracks',
             python_callable=spotify.fetch_top_tracks,
             op_kwargs={
-                'url': 'https://api.spotify.com/v1/playlists/37i9dQZEVXbNG2KDcFcKOF/tracks',
-                'access_token': '{{ ti.xcom_pull(task_ids="spotify_getAccessToken") }}',
-                'url_params':{
-                    'limit': 50
-                },
                 'mongo_conn_id': MONGO_CONN_ID,
-                'collection': 'spotify',
-                'schema': 'music_chart',
-                'access_token': 'ti.xcom_pull(task_ids="get_access_token")'
+                'collname': 'spotify_top_tracks',
+                'dbname': MONGO_DB_NAME
             }
         )
 
-        fetch_artists = PythonOperator(
+        fetch_artists_task = PythonOperator(
             task_id='fetch_artists',
-            python_callable=lambda: None
+            python_callable=spotify.fetch_artists,
+            op_kwargs={
+                'mongo_conn_id': MONGO_CONN_ID,
+                'dbname': MONGO_DB_NAME,
+                'tracks_collname': 'spotify_top_tracks',
+                'artists_collname': 'spotify_artists'
+            }
         )
     
-        fetch_creds >> [fetch_top_tracks, fetch_artists]
+        fetch_creds_task >> fetch_top_tracks_task >> fetch_artists_task
+    
+    with TaskGroup('cleanup') as cleanup_group:
+        clean_xcom_task = PythonOperator(
+            task_id='clean_xcom',
+            python_callable=cleanup_xcom
+        )
+        
+        clean_xcom_task
 
-    transform = SparkSubmitOperator(
-        task_id='transform_data',
+    transform_tracks_task = SparkSubmitOperator(
+        task_id='transform_tracks',
         conn_id=SPARK_CONN_ID,
-        application=SPARK_JOBS_DIR + '/transform.py',
+        application=SPARK_JOBS_DIR + 'transform_tracks.py',
         packages=(
             'org.mongodb.spark:mongo-spark-connector:10.0.5,'
-            'org.mongodb:mongodb-driver-sync:4.8.1'
+            'org.mongodb:mongodb-driver-sync:4.8.1,'
+            'mysql:mysql-connector-java:8.0.32'
         ),
         application_args=[
-            '--uri', get_uri(MONGO_CONN_ID, conn_type='mongo'),
+            '--mongo_uri', get_uri(MONGO_CONN_ID, conn_type='mongo'),
+            '--mysql_uri', get_uri(MYSQL_CONN_ID),
             '--runtime', '{{ ts }}'
         ],
         retries=0
     )
 
-    transform.set_upstream([spotify_group, soundcloud_group])
+    transform_artists_task = SparkSubmitOperator(
+        task_id='transform_artists',
+        conn_id=SPARK_CONN_ID,
+        application=SPARK_JOBS_DIR + 'transform_artists.py',
+        packages=(
+            'org.mongodb.spark:mongo-spark-connector:10.0.5,'
+            'org.mongodb:mongodb-driver-sync:4.8.1,'
+            'mysql:mysql-connector-java:8.0.32'
+        ),
+        application_args=[
+            '--mongo_uri', get_uri(MONGO_CONN_ID, conn_type='mongo'),
+            '--mysql_uri', get_uri(MYSQL_CONN_ID),
+            '--runtime', '{{ ts }}'
+        ],
+        retries=0
+    )
+
+    [spotify_group, soundcloud_group] >> clear_warehouse_task >> \
+    [transform_tracks_task, transform_artists_task] >> cleanup_group
