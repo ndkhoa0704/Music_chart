@@ -39,7 +39,7 @@ if __name__=='__main__':
         .option('spark.mongodb.aggregate.pipeline', pipeline)
     
     # Tracks
- 
+
     soundcloud_tracks_df = reader.option('spark.mongodb.database', 'music_chart') \
         .option('spark.mongodb.collection', 'soundcloud_top_tracks') \
         .load()
@@ -84,7 +84,8 @@ if __name__=='__main__':
         .drop('items')
     
     tracks_df = soundcloud_tracks_df.union(spotify_tracks_df)
-
+    
+    del soundcloud_tracks_df, spotify_tracks_df
     # Artists
     soundcloud_artists_df = reader.option('spark.mongodb.database', 'music_chart') \
         .option('spark.mongodb.collection', 'soundcloud_artists') \
@@ -109,13 +110,14 @@ if __name__=='__main__':
     
     artists_df = soundcloud_artists_df.union(spotify_artists_df)
 
+    del spotify_artists_df, soundcloud_artists_df
+    # Write
     mysql_conf = {
         'host': 'mysqldb',
         'user': args.mysql_login,
         'password': args.mysql_password
     }
 
-    # Write
     brMySQL_conf = spark.sparkContext.broadcast(mysql_conf)
     br_tracks_cols = spark.sparkContext.broadcast(tracks_df.columns)
     br_artists_cols = spark.sparkContext.broadcast(artists_df.columns)
@@ -129,6 +131,7 @@ if __name__=='__main__':
         cursor = mysql_conn.cursor()
         for row in partition:
             insert_row(row, br_tracks_cols.value, cursor, 'tracks', True)
+        mysql_conn.commit()
         mysql_conn.close()
 
     def insert_artists(partition):
@@ -140,6 +143,7 @@ if __name__=='__main__':
         cursor = mysql_conn.cursor()
         for row in partition:
             insert_row(row, br_artists_cols.value, cursor, 'artists', True)
+        mysql_conn.commit()
         mysql_conn.close()
 
     tracks_df.rdd.coalesce(5).\

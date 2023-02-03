@@ -304,6 +304,7 @@ services:
     ports:
       - "9090:8000"
       - "7077:7077"
+      - "4040:14040"
     environment:
       - SPARK_LOCAL_IP=spark-master
       - SPARK_WORKLOAD=master

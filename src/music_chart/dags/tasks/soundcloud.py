@@ -118,13 +118,17 @@ def fetch_artists(
     client_id = get_client_id()
     for i, id in enumerate(ids):
         url = f'https://api-v2.soundcloud.com/users/{id}?client_id={client_id}'
-        for _ in range(10):
+        total_attemps = 0
+        while True:
+            total_attemps += 1
             logging.info('Fetching: {}'.format(url))
             response = _make_requests(url, 'GET')
             if response == 403:
                 sleep(0.05)
             else: break
 
+        if total_attemps == 10:
+            continue
         json_data = json.loads(response)
         json_data['data_time'] = ts # Assign dag run time
         artists_data.append(json_data)

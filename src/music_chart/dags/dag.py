@@ -108,7 +108,7 @@ with DAG(
         clean_xcom_task
 
     transform_tracks_task = SparkSubmitOperator(
-        task_id='transform_tracks',
+        task_id='transform',
         conn_id=SPARK_CONN_ID,
         application=SPARK_JOBS_DIR + 'transform.py',
         packages=(
