@@ -70,6 +70,7 @@ def get_uri(conn_id: str, conn_type: str=None, include_user_pwd: bool=True, jdbc
     if jdbc:
         uri = 'jdbc:' + uri
 
+    # Remove authorization part
     if not include_user_pwd and conn.login is not None and conn.password is not None:
         uri = uri.replace(uri[uri.rfind('/') + 1:uri.rfind('@') + 1],'')
 

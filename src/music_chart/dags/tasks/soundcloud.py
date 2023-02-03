@@ -29,11 +29,10 @@ def _make_requests(url: str, method: str, *args, **kwargs):
     return response.content
 
 
-def _get_client_id() -> str:
+def get_client_id() -> str:
     '''
     Get client_id required by soundcloud
     '''
-
     client_id = None
     response = _make_requests('https://soundcloud.com', 'GET').decode('utf-8')
     # Get js url to. Last js seems to contain the client_id
@@ -71,16 +70,15 @@ def fetch_top_tracks(
         'limit': 100
     }
     url = 'https://api-v2.soundcloud.com/charts'
+    url_params['client_id'] = get_client_id()
     with MongoHook(conn_id=mongo_conn_id).get_conn() as client:
         db = client[dbname]
         coll = db[collname]
         for _ in range(10):
-            url_params['client_id'] = _get_client_id()
             complete_url = add_url_params(url, url_params)
             response = _make_requests(complete_url, 'GET')
             if response == 403: # Client error
                 sleep(0.05)
-                continue
             else: break
         json_data = json.loads(response)
         json_data['data_time'] = ts # Assign dag run time
@@ -117,7 +115,7 @@ def fetch_artists(
     ids = set(json_path('collection.[*].track.user_id', data))
     artists_data = [] 
     collection = db[artists_collname]
-    client_id = _get_client_id()
+    client_id = get_client_id()
     for i, id in enumerate(ids):
         url = f'https://api-v2.soundcloud.com/users/{id}?client_id={client_id}'
         for _ in range(10):
@@ -125,7 +123,6 @@ def fetch_artists(
             response = _make_requests(url, 'GET')
             if response == 403:
                 sleep(0.05)
-                client_id = _get_client_id()
             else: break
 
         json_data = json.loads(response)

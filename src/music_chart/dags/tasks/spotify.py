@@ -4,7 +4,6 @@ from music_chart.common.utils import (
 import requests
 import logging
 from airflow.providers.mongo.hooks.mongo import MongoHook
-from airflow.models import Variable
 import json
 import base64
 from pymongo import MongoClient
@@ -19,7 +18,7 @@ def _make_requests(url: str, method: str,  *args, **kwargs):
     return response.content
 
 
-def get_access_token(ti, client_payload) -> str:
+def get_access_token(client_payload: str) -> str:
     '''
     Get spotify access token
     '''
@@ -34,13 +33,14 @@ def get_access_token(ti, client_payload) -> str:
     response = _make_requests('https://accounts.spotify.com/api/token', 'POST', headers=headers, data=data)
     access_token = json_path('access_token', json.loads(response))
 
-    ti.xcom_push(key='spotify_access_token', value=access_token)
+    return access_token
 
 
 def fetch_top_tracks(
     mongo_conn_id: str, 
     collname: str, 
     dbname: str,
+    client_payload: str,
     ts,
     ti
 ):
@@ -51,7 +51,7 @@ def fetch_top_tracks(
     url_params = {
         'limit': 50
     }
-    access_token = ti.xcom_pull(task_ids='spotify.get_access_token', key='spotify_access_token')
+    access_token = get_access_token(client_payload)
     with MongoHook(conn_id=mongo_conn_id).get_conn() as client:
         db = client[dbname]
         coll = db[collname]
@@ -70,8 +70,8 @@ def fetch_artists(
     dbname: str, 
     tracks_collname: str, 
     artists_collname: str, 
-    ts,
-    ti
+    client_payload: str,
+    ts
 ):
     '''
     Fetch artists' data to mongodb
@@ -96,7 +96,7 @@ def fetch_artists(
     
     artists_data = []
     collection = db[artists_collname]
-    access_token = ti.xcom_pull(task_ids='spotify.get_access_token', key='spotify_access_token')
+    access_token = get_access_token(client_payload)
     headers = {
         'Authorization': f'Bearer {access_token}' 
     }

@@ -1,7 +1,5 @@
 FROM apache/airflow:2.5.0
 
-COPY requirements.txt .
-
 USER root
 
 # Add Dependencies for PySpark
@@ -46,10 +44,10 @@ COPY start-spark.sh /
 
 CMD ["/bin/bash", "/start-spark.sh"]
 
-COPY requirements.txt .
+COPY airflow_requirements.txt .
 
 USER airflow
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r airflow_requirements.txt
 
 USER root
-RUN rm requirements.txt
+RUN rm airflow_requirements.txt

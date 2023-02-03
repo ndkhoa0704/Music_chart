@@ -1,7 +1,7 @@
 FROM apache/airflow:2.5.0
 
-COPY requirements.txt .
+COPY airflow_requirements.txt .
 
 USER airflow
-RUN pip install --no-cache-dir -r requirements.txt
-RUN rm requirements.txt
+RUN pip install --no-cache-dir -r airflow_requirements.txt
+RUN rm airflow_requirements.txt

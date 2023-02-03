@@ -45,7 +45,7 @@ with DAG(
         ''',
         mysql_conn_id=MYSQL_CONN_ID,
         sql='''
-        DELETE FROM music_chart.tracks WHERE data_time = '{{ ts }}'
+        DELETE FROM music_chart.tracks WHERE data_time = '{{ ds }}'
         '''
     )
 
@@ -74,21 +74,14 @@ with DAG(
         fetch_top_tracks_task >> fetch_artists_task
 
     with TaskGroup('spotify') as spotify_group:
-        fetch_creds_task = PythonOperator(
-            task_id='get_access_token',
-            python_callable=spotify.get_access_token,
-            op_kwargs={
-                'client_payload': '{{ conn.spotify_creds.password }}'
-            }
-        )
-
         fetch_top_tracks_task = PythonOperator(
             task_id='fetch_top_tracks',
             python_callable=spotify.fetch_top_tracks,
             op_kwargs={
                 'mongo_conn_id': MONGO_CONN_ID,
                 'collname': 'spotify_top_tracks',
-                'dbname': MONGO_DB_NAME
+                'dbname': MONGO_DB_NAME,
+                'client_payload': '{{ conn.spotify_creds.password }}'
             }
         )
 
@@ -99,11 +92,12 @@ with DAG(
                 'mongo_conn_id': MONGO_CONN_ID,
                 'dbname': MONGO_DB_NAME,
                 'tracks_collname': 'spotify_top_tracks',
-                'artists_collname': 'spotify_artists'
+                'artists_collname': 'spotify_artists',
+                'client_payload': '{{ conn.spotify_creds.password }}'
             }
         )
     
-        fetch_creds_task >> fetch_top_tracks_task >> fetch_artists_task
+        fetch_top_tracks_task >> fetch_artists_task
     
     with TaskGroup('cleanup') as cleanup_group:
         clean_xcom_task = PythonOperator(
@@ -116,11 +110,11 @@ with DAG(
     transform_tracks_task = SparkSubmitOperator(
         task_id='transform_tracks',
         conn_id=SPARK_CONN_ID,
-        application=SPARK_JOBS_DIR + 'transform_tracks.py',
+        application=SPARK_JOBS_DIR + 'transform.py',
         packages=(
             'org.mongodb.spark:mongo-spark-connector:10.0.5,'
-            'org.mongodb:mongodb-driver-sync:4.8.1,'
-            'mysql:mysql-connector-java:8.0.32'
+            'org.mongodb:mongodb-driver-sync:4.8.1'
+            # 'mysql:mysql-connector-java:8.0.32'
         ),
         application_args=[
             '--mongo_uri', get_uri(MONGO_CONN_ID, conn_type='mongo'),
@@ -131,24 +125,6 @@ with DAG(
         ]
     )
 
-    transform_artists_task = SparkSubmitOperator(
-        task_id='transform_artists',
-        conn_id=SPARK_CONN_ID,
-        application=SPARK_JOBS_DIR + 'transform_artists.py',
-        packages=(
-            'org.mongodb.spark:mongo-spark-connector:10.0.5,'
-            'org.mongodb:mongodb-driver-sync:4.8.1,'
-            'mysql:mysql-connector-java:8.0.32'
-        ),
-        application_args=[
-            '--mongo_uri', get_uri(MONGO_CONN_ID, conn_type='mongo'),
-            '--mysql_uri', get_uri(MYSQL_CONN_ID, include_user_pwd=False, jdbc=True),
-            '--mysql_login', '{{ conn.mysql_conn.login }}',
-            '--mysql_password', '{{ conn.mysql_conn.password }}',
-            '--runtime', '{{ ts }}'
-        ]
-    )
-
 
     [spotify_group, soundcloud_group] >> clear_warehouse_task >> \
-    [transform_tracks_task, transform_artists_task] >> cleanup_group
+    transform_tracks_task >> cleanup_group
