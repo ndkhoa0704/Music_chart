@@ -4,7 +4,7 @@ import argparse
 import mysql.connector
 
 
-def insert_partition(partition, mysql_conf, dbname: str, dbtable: str, cols: list, replace: bool=False): # Test
+def insert_partition(partition, mysql_conf, dbname: str, dbtable: str, cols: list, replace: bool=False):
     '''
     Insert records to mysql for each partition
     '''
