@@ -4,8 +4,12 @@ import argparse
 import mysql.connector
 
 
-def insert_row(row, cols: list, cursor, dbtable: str, replace: bool=False):
-    'Insert row to database'
+def insert_partition(partition, mysql_conf, dbname: str, dbtable: str, cols: list, replace: bool=False): # Test
+    '''
+    Insert records to mysql for each partition
+    '''
+    mysql_conn = mysql.connector.connect(**mysql_conf, database=dbname)
+    cursor = mysql_conn.cursor()
     command = 'INSERT'
     if replace:
         command = 'REPLACE'
@@ -14,7 +18,10 @@ def insert_row(row, cols: list, cursor, dbtable: str, replace: bool=False):
     ({','.join(cols)})
     VALUES ({','.join(['%s']*len(cols))})
     '''
-    cursor.execute(sql, row)
+    for row in partition:
+        cursor.execute(sql, row)
+    mysql_conn.commit()
+    mysql_conn.close()
 
 
 if __name__=='__main__':
@@ -33,17 +40,22 @@ if __name__=='__main__':
         "$match": {"data_time": f'"{args.runtime}"'}
     }
 
+    mysql_conf = {
+        'host': 'mysqldb',
+        'user': args.mysql_login,
+        'password': args.mysql_password
+    }
+    brMySQL_conf = spark.sparkContext.broadcast(mysql_conf)
 
     reader = spark.read.format("mongodb") \
         .option('spark.mongodb.connection.uri', args.mongo_uri) \
         .option('spark.mongodb.aggregate.pipeline', pipeline)
-    
-    # Tracks
+
 
     soundcloud_tracks_df = reader.option('spark.mongodb.database', 'music_chart') \
         .option('spark.mongodb.collection', 'soundcloud_top_tracks') \
         .load()
-
+     
     soundcloud_tracks_df = soundcloud_tracks_df.drop(
         'genre', '_id', 'kind', 
         'last_updated', 'query_urn'
@@ -59,7 +71,11 @@ if __name__=='__main__':
         .withColumn('popularity', f.col('collection.track.likes_count')) \
         .withColumn('artist', f.col('collection.track.user_id')) \
         .withColumn('data_time', f.to_timestamp('data_time')) \
+        .withColumn('genre', f.col('collection.track.genre')) \
         .drop('collection')
+    
+    track_genres_df = soundcloud_tracks_df.select('genre', 'id')
+    soundcloud_tracks_df = soundcloud_tracks_df.drop('genre')
 
 
     spotify_tracks_df = reader.option('spark.mongodb.database', 'music_chart') \
@@ -83,9 +99,29 @@ if __name__=='__main__':
         .drop('artists') \
         .drop('items')
     
-    tracks_df = soundcloud_tracks_df.union(spotify_tracks_df)
-    
+    spotify_id_artist_df = spotify_tracks_df.select('id', 'artist')
+
+    tracks_df = soundcloud_tracks_df.union(spotify_tracks_df).fillna('None')
+
     del soundcloud_tracks_df, spotify_tracks_df
+    
+    br_tracks_cols = spark.sparkContext.broadcast(tracks_df.columns)
+
+    tracks_df.rdd.coalesce(5).\
+        foreachPartition(lambda partition: insert_partition(
+            partition=partition, 
+            mysql_conf=brMySQL_conf.value, 
+            dbname='music_chart',
+            dbtable='tracks', 
+            cols=br_tracks_cols.value, 
+            replace=True
+        )
+    )
+    
+    del tracks_df
+    br_tracks_cols.unpersist()
+
+
     # Artists
     soundcloud_artists_df = reader.option('spark.mongodb.database', 'music_chart') \
         .option('spark.mongodb.collection', 'soundcloud_artists') \
@@ -105,49 +141,49 @@ if __name__=='__main__':
     spotify_artists_df = spotify_artists_df.select(
         'name', f.to_timestamp('data_time').alias('data_time'), 'id',
         f.col('followers.total').alias('total_followers'),
-        f.lit('spotify').alias('source')
+        f.lit('spotify').alias('source'),
+        'genres'
     ).dropDuplicates(subset=['id'])
+
+    temp_df = spotify_artists_df.select(f.explode('genres').alias('genre'), f.col('id').alias('artist'))
+    track_genres_df = track_genres_df.union(
+        temp_df.join(spotify_id_artist_df, 'artist').drop('artist')
+    )
+    spotify_artists_df = spotify_artists_df.drop('genres')
     
     artists_df = soundcloud_artists_df.union(spotify_artists_df)
 
     del spotify_artists_df, soundcloud_artists_df
-    # Write
-    mysql_conf = {
-        'host': 'mysqldb',
-        'user': args.mysql_login,
-        'password': args.mysql_password
-    }
 
-    brMySQL_conf = spark.sparkContext.broadcast(mysql_conf)
-    br_tracks_cols = spark.sparkContext.broadcast(tracks_df.columns)
     br_artists_cols = spark.sparkContext.broadcast(artists_df.columns)
 
-    def insert_tracks(partition):
-        '''
-        Insert records to mysql for each partition
-        '''
-        mysql_conf = brMySQL_conf.value
-        mysql_conn = mysql.connector.connect(**mysql_conf, database='music_chart')
-        cursor = mysql_conn.cursor()
-        for row in partition:
-            insert_row(row, br_tracks_cols.value, cursor, 'tracks', True)
-        mysql_conn.commit()
-        mysql_conn.close()
-
-    def insert_artists(partition):
-        '''
-        Insert records to mysql for each partition
-        '''
-        mysql_conf = brMySQL_conf.value
-        mysql_conn = mysql.connector.connect(**mysql_conf, database='music_chart')
-        cursor = mysql_conn.cursor()
-        for row in partition:
-            insert_row(row, br_artists_cols.value, cursor, 'artists', True)
-        mysql_conn.commit()
-        mysql_conn.close()
-
-    tracks_df.rdd.coalesce(5).\
-        foreachPartition(insert_tracks)
-    
     artists_df.rdd.coalesce(5).\
-        foreachPartition(insert_artists)
+        foreachPartition(lambda partition: insert_partition(
+            partition=partition, 
+            mysql_conf=brMySQL_conf.value, 
+            dbname='music_chart',
+            dbtable='artists', 
+            cols=br_artists_cols.value, 
+            replace=True
+        )
+    )
+    
+    del artists_df
+    br_artists_cols.unpersist()
+
+    track_genres_df = track_genres_df.withColumnRenamed('id', 'track_id').fillna('None')
+    br_genres_cols = spark.sparkContext.broadcast(track_genres_df.columns)
+
+    track_genres_df.rdd.coalesce(5).\
+        foreachPartition(lambda partition: insert_partition(
+            partition=partition, 
+            mysql_conf=brMySQL_conf.value, 
+            dbname='music_chart',
+            dbtable='track_genres', 
+            cols=br_genres_cols.value, 
+            replace=True
+        )
+    )
+    
+    del track_genres_df
+    br_genres_cols.unpersist()
