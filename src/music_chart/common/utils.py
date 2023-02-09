@@ -7,11 +7,16 @@ import itertools
 import logging
 import requests
 from time import sleep
+from ratelimit import limits
+from datetime import datetime
 
 
 @provide_session
-def cleanup_xcom(ti, session=None):
-    session.query(XCom).filter(XCom.dag_id == ti.dag_id).delete()
+def cleanup_xcom(ti, ts, session=None):
+    session.query(XCom).filter(
+        XCom.dag_id == ti.dag_id,
+        XCom.timestamp == datetime.fromisoformat(ts)
+        ).delete()
 
 
 def retry(_func=None ,retries: int=0, sleep_time: int=0, stop_retry: bool=False, stop_condition=None):
@@ -72,6 +77,21 @@ def make_request(url: str, method: str, decode: str=None, *args, **kwargs):
     if not decode:
         return response.content
     return response.content.decode(decode)
+
+
+def extended_make_request(repeat: int=0, calls: int=0, period: float=0, sleep_time: float=0, *args, **kwargs):
+    '''
+    Extened version of make_request with repeating capability
+    and ratelimit
+
+    :param int repeat: number of repetition
+    :param int sleep: sleep time between repetition
+    :param int calls: number of requests in a period
+    :param float pediod: period interval (seconds)
+    :return: (decoded) response content
+    :rtype str
+    '''
+    return retry(limits(calls=calls, period=period)(make_request), retries=repeat, sleep_time=sleep_time)(*args, **kwargs)
 
 
 def add_url_params(url: str, params: dict):

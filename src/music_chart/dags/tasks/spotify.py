@@ -1,5 +1,5 @@
 from music_chart.common.utils import (
-    json_path, add_url_params, get_uri, flatten, make_request, retry
+    json_path, add_url_params, get_uri, flatten, extended_make_request
 )
 import logging
 from airflow.providers.mongo.hooks.mongo import MongoHook
@@ -11,10 +11,6 @@ from time import sleep
 
 MAX_REQUEST_RETRIES = 5
 
-@retry(retries=MAX_REQUEST_RETRIES, sleep_time=0.05)
-def _make_request(*args, **kwargs):
-    return make_request(*args, **kwargs)
-
 def get_access_token(client_payload: str) -> str:
     '''
     Get spotify access token
@@ -25,7 +21,12 @@ def get_access_token(client_payload: str) -> str:
             base64.b64encode(f'{payload["client_id"]}:{payload["client_secret"]}'.encode('ascii')).decode('ascii')
     }
     data = {'grant_type': 'client_credentials'}
-    response = _make_request('https://accounts.spotify.com/api/token', 'POST', headers=headers, data=data)
+    response = extended_make_request(
+        url='https://accounts.spotify.com/api/token', method='POST', 
+        headers=headers, data=data,
+        repeat=MAX_REQUEST_RETRIES,
+        sleep_time=0.05
+    )
     access_token = json_path('access_token', json.loads(response))
 
     return access_token
@@ -42,16 +43,18 @@ def fetch_top_tracks(
     Fetch top tracks to mongodb
     '''
     url = 'https://api.spotify.com/v1/playlists/37i9dQZEVXbNG2KDcFcKOF/tracks'
-    url_params = {
-        'limit': 50
-    }
+    url_params = {'limit': 50}
     access_token = get_access_token(client_payload)
     with MongoHook(conn_id=mongo_conn_id).get_conn() as client:
         db = client[dbname]
         coll = db[collname]
         headers = { 'Authorization': f'Bearer {access_token}' }
         complete_url = add_url_params(url, url_params)
-        response = _make_request(complete_url, 'GET', headers=headers)
+        response = extended_make_request(
+            url=complete_url, method='GET', headers=headers,
+            repeat=MAX_REQUEST_RETRIES,
+            sleep_time=0.05
+        )
         json_data = json.loads(response)
         json_data['data_time'] = ts # Assign dag run time
         coll.insert_one(json_data)
@@ -85,7 +88,7 @@ def fetch_artists(
     if data is None:
         raise Exception('Cannot fetch tracks data')
     hrefs = set(flatten(json_path('items.[*].track.artists.[*].href', data)))
-    
+
     artists_data = []
     collection = db[artists_collname]
     access_token = get_access_token(client_payload)
@@ -94,7 +97,11 @@ def fetch_artists(
     }
     for i, url in enumerate(hrefs):
         logging.info('Fetching: {}'.format(url))
-        response = _make_request(url, 'GET', headers=headers)
+        response = extended_make_request(
+            url=url, method='GET', headers=headers,
+            repeat=MAX_REQUEST_RETRIES,
+            sleep_time=0.05
+        )
         json_data = json.loads(response)
         json_data['data_time'] = ts # Assign dag run time
         artists_data.append(json_data)

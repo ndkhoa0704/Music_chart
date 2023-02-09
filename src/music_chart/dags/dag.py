@@ -173,6 +173,7 @@ transform_soundcloud_task = SparkSubmitOperator(
         '--mysql_password', '{{ conn.mysql_conn.password }}',
         '--runtime', '{{ ts }}'
     ],
+    py_files=SPARK_JOBS_DIR + 'utils.py',
     dag=dag
 )
 
@@ -191,10 +192,11 @@ transform_spotify_task = SparkSubmitOperator(
         '--mysql_password', '{{ conn.mysql_conn.password }}',
         '--runtime', '{{ ts }}'
     ],
+    py_files=SPARK_JOBS_DIR + 'utils.py',
     dag=dag
 )
 
 
-fetch_spotify_group >> cleandwh_spotify_group >> transform_spotify_task
-fetch_soundcloud_group >> cleandwh_soundcloud_group >> transform_soundcloud_task
-[transform_soundcloud_task, transform_spotify_task] >> clean_xcom_task
+fetch_spotify_group >>  cleandwh_spotify_group
+fetch_soundcloud_group >> cleandwh_soundcloud_group
+[cleandwh_spotify_group, cleandwh_soundcloud_group] >> transform_soundcloud_task >> transform_spotify_task >> clean_xcom_task

@@ -2,33 +2,31 @@ import requests
 import re
 import json
 from music_chart.common.utils import (
-    json_path, add_url_params, get_uri, retry, make_request
+    json_path, add_url_params, get_uri, make_request, extended_make_request
 )
 import logging
 from airflow.providers.mongo.hooks.mongo import MongoHook        
 from time import sleep
 from pymongo import MongoClient
-from ratelimit import limits
+
+soundcloud_request_limit = {
+    'calls': 15000,
+    'period': 86400
+}
 
 
-MAX_REQUEST_RETRIES = 5
-
-@retry(retries=MAX_REQUEST_RETRIES, sleep_time=0.05)
-@limits(calls=15000, period=24*3600)
-def _make_request(*args, **kwargs):
-    return make_request(*args, **kwargs)
-
+MAX_REQUEST_RETRIES = 10
 
 def get_client_id() -> str:
     '''
     Get client_id required by soundcloud
     '''
     client_id = None
-    response = _make_request('https://soundcloud.com', 'GET', 'utf-8')
+    response = make_request('https://soundcloud.com', 'GET', 'utf-8')
     # Get js url to. Last js seems to contain the client_id
     js_urls = re.findall(r'<script crossorigin src="(.+)"></script>', response)
     for url in reversed(js_urls):
-        response = _make_request(url, 'GET', 'utf-8')
+        response = make_request(url, 'GET', 'utf-8')
         # Get client_id 
         js_file = response
         client_id_idx = js_file.find(',client_id:"')
@@ -65,7 +63,10 @@ def fetch_top_tracks(
         db = client[dbname]
         coll = db[collname]
         complete_url = add_url_params(url, url_params)
-        response = _make_request(complete_url, 'GET')
+        response = extended_make_request(
+            url=complete_url, method='GET', 
+            repeat=MAX_REQUEST_RETRIES, sleep_time=0.05, 
+            **soundcloud_request_limit)
         json_data = json.loads(response)
         json_data['data_time'] = ts # Assign dag run time
         coll.insert_one(json_data)
@@ -106,7 +107,12 @@ def fetch_artists(
     missing_artists = []
     for i, id in enumerate(ids):
         url = f'https://api-v2.soundcloud.com/users/{id}?client_id={client_id}'
-        response = _make_request(url, 'GET')
+        try:
+            response = extended_make_request(
+                url=url, method='GET', repeat=20, sleep_time=0.05, **soundcloud_request_limit)
+        except ValueError:
+            missing_artists.append(id)
+            continue
         json_data = json.loads(response)
         json_data['data_time'] = ts # Assign dag run time
         artists_data.append(json_data)
@@ -117,4 +123,8 @@ def fetch_artists(
     if artists_data:
         collection.insert_many(artists_data)
 
-    ti.xcom_push(key='missing_artists', value=missing_artists)
+    collection.insert_one({
+        'type': 'missing_artists',
+        'data':missing_artists,
+        'data_time': ts
+    })

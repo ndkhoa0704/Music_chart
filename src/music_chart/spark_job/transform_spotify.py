@@ -4,35 +4,33 @@ import argparse
 from utils import insert_partition
 
 
+PYFILES_DIR = '/opt/spark/spark_pyfiles/music_chart/'
+
 def spotify_tracks(df: DataFrame):
     return df.drop(
         'href', '_id', 'limit', 'total', 
-        'next', 'offset', 'previous'
+        'next', 'offset', 'previous', 'data_time'
     ).withColumn('items', f.explode('items')) \
-        .withColumn('id', f.col('items.track.id')) \
+        .withColumn('track_id', f.col('items.track.id')) \
         .withColumn('name', f.col('items.track.name')) \
         .withColumn('duration', f.col('items.track.duration_ms')) \
         .withColumn('source', f.lit('spotify')) \
         .withColumn('release_date', f.to_timestamp(f.col('items.added_at'))) \
         .withColumn('popularity', f.col('items.track.popularity')) \
         .withColumn('artists', f.explode('items.track.artists')) \
-        .withColumn('artist', f.col('artists.id')) \
-        .withColumn('data_time', f.to_timestamp('data_time')) \
-        .dropDuplicates(['id', 'artist']) \
+        .withColumn('artist_id', f.col('artists.id')) \
+        .dropDuplicates(['track_id', 'artist_id']) \
         .drop('artists') \
         .drop('items')
 
 
 def spotify_artists(df: DataFrame):
     return df.select(
-        'name', f.to_timestamp('data_time').alias('data_time'), 'id',
+        'name', f.col('id').alias('artist_id'),
         f.col('followers.total').alias('total_followers'),
         f.lit('spotify').alias('source'),
-    ).dropDuplicates(subset=['id'])
+    ).dropDuplicates(subset=['artist_id'])
 
-
-def spotify_genres(df: DataFrame, id_df: DataFrame):
-    pass
 
 def main(args):
     spark = SparkSession.Builder().\
@@ -62,8 +60,8 @@ def main(args):
     
     artists_df = spotify_artists(df)
     
-    genres_df = tracks_df.join(artists_df, [tracks_df['artist'] == artists_df['id']])\
-        .select(f.explode('genre').alias('genre'), tracks_df['id'])
+    genres_df = tracks_df.join(df, [tracks_df['artist_id'] == df['id']])\
+        .select(f.explode('genres').alias('genre'), tracks_df['track_id'])
 
     # Write
     br_artists_cols = spark.sparkContext.broadcast(artists_df.columns)
@@ -115,3 +113,4 @@ if __name__=='__main__':
     parser.add_argument('--mysql_password', dest='mysql_password')
     parser.add_argument('--runtime', dest='runtime')
     args = parser.parse_args()
+    main(args)
