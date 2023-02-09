@@ -290,7 +290,7 @@ services:
       airflow-init:
         condition: service_completed_successfully
 
-  mongo:
+  mongodb:
     image: mongo
     ports:
       - 27017:27017

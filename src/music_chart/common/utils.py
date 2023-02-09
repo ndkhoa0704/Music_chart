@@ -1,8 +1,12 @@
 import re
 from airflow.hooks.base import BaseHook
 from airflow.utils.db import provide_session
+from functools import wraps
 from airflow.models.xcom import XCom
 import itertools
+import logging
+import requests
+from time import sleep
 
 
 @provide_session
@@ -10,9 +14,74 @@ def cleanup_xcom(ti, session=None):
     session.query(XCom).filter(XCom.dag_id == ti.dag_id).delete()
 
 
-def add_url_params(url: str, params):
+def retry(_func=None ,retries: int=0, sleep_time: int=0, stop_retry: bool=False, stop_condition=None):
+    '''
+    Decorate a function with retry capability.
+    Skip all exceptions raise by input function
+
+    :param int retries: number of retries
+    :param int sleep_time (optional): sleep time between retries (second)
+    :param any stop_condition (optional): stop retrying condition (only if `stop_retry` == True)
+    :param bool stop_retry (optional): stop retrying with condition
+    :return: decorated function
+    :rtype: function
+
+    Exceptions: raise when the function cannot meet the stop_condition
+    after reaching the number of retries
+    '''
+    def decorator_retry(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            counter = 0
+            while True:
+                try:
+                    result = func(*args, **kwargs)
+                    if stop_retry: 
+                        if result == stop_condition:
+                            return result  
+                    else: return result
+                except:
+                    pass
+                if sleep_time > 0:
+                    sleep(sleep_time)
+                counter += 1
+                if counter == retries:
+                    raise ValueError('Reached retry limit with no expected output')
+        return wrapper
+    if _func:
+        return decorator_retry(_func)
+    else:
+        return decorator_retry
+            
+
+def make_request(url: str, method: str, decode: str=None, *args, **kwargs):
+    '''
+    Make a request and return response only if reponse status is 200
+
+    :param str url: url
+    :param str method: http method
+    :param str decode: response decode string
+    :return: (decoded) response content
+    :rtype str
+    '''
+    logging.info(f"Fetch '{url}'")
+    response = requests.request(method=method, url=url, *args, **kwargs)
+    if response.status_code != 200:
+        raise requests.ConnectionError(f'Error code {response.status_code}')
+    logging.debug(response.raw)
+    if not decode:
+        return response.content
+    return response.content.decode(decode)
+
+
+def add_url_params(url: str, params: dict):
     '''
     Construct url with parameters
+
+    :param str url: url
+    :param dict params: pairs of key value for url params
+    :return constructed url
+    :rtype str
     '''
     if not '?' in url:
         url += '?'
@@ -24,7 +93,12 @@ def add_url_params(url: str, params):
 def json_path(path: str, json_data: dict):
     '''
     Get item from json data based on user defined path
+    :param str path: user defined json path
+    :param dict json_data: deserialize json data
+    :return data field
+    :rtype any
     '''
+
     if path is None: # End recursion
         return json_data
     

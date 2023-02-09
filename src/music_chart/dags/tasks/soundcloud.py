@@ -1,32 +1,22 @@
 import requests
 import re
 import json
-from music_chart.common.utils import json_path, add_url_params, get_uri
+from music_chart.common.utils import (
+    json_path, add_url_params, get_uri, retry, make_request
+)
 import logging
 from airflow.providers.mongo.hooks.mongo import MongoHook        
-from airflow.exceptions import AirflowSkipException
 from time import sleep
 from pymongo import MongoClient
+from ratelimit import limits
 
 
-def _make_requests(url: str, method: str, *args, **kwargs):
-    '''
-    A make_requests function for soundcloud
-    to handle some specific exceptions
-    '''
-    logging.info(f"Fetching '{url}'")
-    response = requests.request(method=method, url=url, *args, **kwargs)
-    if response.status_code != 200:
-        # error_response = json.loads(response.content)
-        if response.status_code == 429: # Reach rate limits
-            # reset_time = json_path('errors.[*].meta.reset_times', error_response)
-            raise AirflowSkipException
-        elif response.status_code == 403:
-            return 403
-        else: 
-            raise Exception(f'Error code: {response.status_code} \n {response.content}')
-        
-    return response.content
+MAX_REQUEST_RETRIES = 5
+
+@retry(retries=MAX_REQUEST_RETRIES, sleep_time=0.05)
+@limits(calls=15000, period=24*3600)
+def _make_request(*args, **kwargs):
+    return make_request(*args, **kwargs)
 
 
 def get_client_id() -> str:
@@ -34,11 +24,11 @@ def get_client_id() -> str:
     Get client_id required by soundcloud
     '''
     client_id = None
-    response = _make_requests('https://soundcloud.com', 'GET').decode('utf-8')
+    response = _make_request('https://soundcloud.com', 'GET', 'utf-8')
     # Get js url to. Last js seems to contain the client_id
     js_urls = re.findall(r'<script crossorigin src="(.+)"></script>', response)
     for url in reversed(js_urls):
-        response = _make_requests(url, 'GET').decode('utf-8')
+        response = _make_request(url, 'GET', 'utf-8')
         # Get client_id 
         js_file = response
         client_id_idx = js_file.find(',client_id:"')
@@ -74,12 +64,8 @@ def fetch_top_tracks(
     with MongoHook(conn_id=mongo_conn_id).get_conn() as client:
         db = client[dbname]
         coll = db[collname]
-        for _ in range(10):
-            complete_url = add_url_params(url, url_params)
-            response = _make_requests(complete_url, 'GET')
-            if response == 403: # Client error
-                sleep(0.05)
-            else: break
+        complete_url = add_url_params(url, url_params)
+        response = _make_request(complete_url, 'GET')
         json_data = json.loads(response)
         json_data['data_time'] = ts # Assign dag run time
         coll.insert_one(json_data)
@@ -90,7 +76,8 @@ def fetch_artists(
     dbname: str, 
     tracks_collname: str, 
     artists_collname: str, 
-    ts
+    ts,
+    ti
 ):
     '''
     Fetch artists' data to mongodb
@@ -116,19 +103,10 @@ def fetch_artists(
     artists_data = [] 
     collection = db[artists_collname]
     client_id = get_client_id()
+    missing_artists = []
     for i, id in enumerate(ids):
         url = f'https://api-v2.soundcloud.com/users/{id}?client_id={client_id}'
-        total_attemps = 0
-        while True:
-            total_attemps += 1
-            logging.info('Fetching: {}'.format(url))
-            response = _make_requests(url, 'GET')
-            if response == 403:
-                sleep(0.05)
-            else: break
-
-        if total_attemps == 10:
-            continue
+        response = _make_request(url, 'GET')
         json_data = json.loads(response)
         json_data['data_time'] = ts # Assign dag run time
         artists_data.append(json_data)
@@ -138,3 +116,5 @@ def fetch_artists(
             artists_data.clear()
     if artists_data:
         collection.insert_many(artists_data)
+
+    ti.xcom_push(key='missing_artists', value=missing_artists)
