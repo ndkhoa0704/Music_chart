@@ -1,34 +1,84 @@
 create database music_chart;
+
 use music_chart;
 
 create table tracks
 (
-	id char(32),
+	id bigint unsigned auto_increment,
+	track_id char(32) not null,
 	name varchar(100),
 	duration int unsigned,
-	source char(50),
-	release_date datetime,
+	source char(50) not null,
+	release_date datetime not null,
 	popularity int unsigned,
-	data_time datetime,
-	artist char(32),
-	index (data_time, artist),
-	primary key(id, data_time, artist)
+	artist_id char(32),
+	index (artist_id),
+	index (track_id),
+	constraint FK_tracks_artist foreign key (artist_id) references artists(artist_id),
+	primary key(id)
 );
+
 
 create table track_genres
 (
-	track_id char(32),
-	genre varchar(50),
-	primary key (track_id, genre)
+	id bigint unsigned auto_increment,
+	track_id char(32) not null,
+	genre varchar(50) not null,
+	constraint FK_track_genres_track_id foreign key (track_id) references tracks(track_id),
+	primary key (id)
 );
+
 
 create table artists
 (
-	id char(32),
+	id bigint unsigned auto_increment,
+	artist_id char(32),
 	name varchar(100),
-	source char(50),
+	source char(50) not null,
 	total_followers int unsigned,
-	data_time datetime,
-	index (data_time),
+	index (artist_id),
 	primary key(id)
-) 
+);
+
+create table data_time_metadata
+(
+	id bigint unsigned auto_increment,
+	record_id bigint unsigned not null,
+	data_time datetime not null,
+	record_type char(50) not null,
+	index(data_time),
+	index(record_id),
+	primary key(id)
+);
+
+delimiter $$
+create trigger tracks_metadata
+after insert on tracks
+for each row
+begin
+	insert into data_time_metadata
+	(record_id, data_time, record_type)
+	values (new.id, now(), 'tracks');
+end;
+$$
+
+create trigger artists_metadata
+after insert on artists
+for each row
+begin
+	insert into data_time_metadata
+	(record_id, data_time, record_type)
+	values (new.id, now(), 'artists');
+end;
+$$
+
+create trigger track_genres_metadata
+after insert on track_genres
+for each row
+begin
+	insert into data_time_metadata
+	(record_id, data_time, record_type)
+	values (new.id, now(), 'track_genres');
+end;
+$$
+delimiter ;
