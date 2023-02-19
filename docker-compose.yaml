@@ -349,5 +349,18 @@ services:
       MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD}"
     restart: always
 
+  api:
+    image: music_chart_api:1.0.0
+    build: 
+      context: .
+      dockerfile: Dockerfile.api
+    volumes:
+      - ./api:/opt/music_chart_api
+    ports:
+      - 8000:8000
+    environment:
+      MYSQL_CONNECTION_URI: '${MYSQL_URI}'
+    restart: always
+    
 volumes:
   postgres-db-volume:

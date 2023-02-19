@@ -1,0 +1,10 @@
+FROM python:3.10-bullseye
+
+WORKDIR /opt/music_chart_api
+COPY api_requirements.txt .
+
+RUN pip install --no-cache-dir -r api_requirements.txt
+
+EXPOSE 8000
+
+CMD [ "uvicorn", "--host", "0.0.0.0", "--port", "8000", "api:app", "--reload" ]

@@ -38,7 +38,7 @@ create table artists
 	total_followers int unsigned,
 	index (artist_id),
 	primary key(id)
-);
+) 
 
 create table data_time_metadata
 (
@@ -49,7 +49,18 @@ create table data_time_metadata
 	index(data_time),
 	index(record_id),
 	primary key(id)
-);
+)
+
+delimiter $$
+create function RoundDateTime (input_dt datetime)
+returns datetime DETERMINISTIC
+begin
+	declare temp datetime;
+	set temp = input_dt;
+	return DATE_FORMAT(DATE_ADD(temp , INTERVAL 30 MINUTE),'%Y-%m-%d %H:00:00');
+end;
+$$
+delimiter ;
 
 delimiter $$
 create trigger tracks_metadata
@@ -58,7 +69,7 @@ for each row
 begin
 	insert into data_time_metadata
 	(record_id, data_time, record_type)
-	values (new.id, now(), 'tracks');
+	values (new.id, RoundDateTime(now()), 'tracks');
 end;
 $$
 
@@ -68,7 +79,7 @@ for each row
 begin
 	insert into data_time_metadata
 	(record_id, data_time, record_type)
-	values (new.id, now(), 'artists');
+	values (new.id, RoundDateTime(now()), 'artists');
 end;
 $$
 
@@ -78,7 +89,7 @@ for each row
 begin
 	insert into data_time_metadata
 	(record_id, data_time, record_type)
-	values (new.id, now(), 'track_genres');
+	values (new.id, RoundDateTime(now()), 'track_genres');
 end;
 $$
 delimiter ;

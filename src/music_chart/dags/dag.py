@@ -33,7 +33,7 @@ default_args = {
 
 dag =  DAG(
     dag_id=MONGO_DB_NAME,
-    schedule_interval='@daily',
+    schedule_interval='@hourly',
     start_date=pendulum.datetime(2022, 9, 12, tz='Asia/Ho_Chi_Minh'),
     max_active_runs=5,
     catchup=False,
