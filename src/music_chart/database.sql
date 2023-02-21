@@ -2,6 +2,26 @@ create database music_chart;
 
 use music_chart;
 
+create table user_data
+(
+	id bigint unsigned auto_increment,
+	username char(32) not null unique,
+	`password` char(72) not null,
+	email varchar(100), 
+	primary key(id)
+);
+
+create table artists
+(
+	id bigint unsigned auto_increment,
+	artist_id char(32),
+	name varchar(100),
+	source char(50) not null,
+	total_followers int unsigned,
+	index (artist_id),
+	primary key(id)
+); 
+
 create table tracks
 (
 	id bigint unsigned auto_increment,
@@ -28,18 +48,6 @@ create table track_genres
 	primary key (id)
 );
 
-
-create table artists
-(
-	id bigint unsigned auto_increment,
-	artist_id char(32),
-	name varchar(100),
-	source char(50) not null,
-	total_followers int unsigned,
-	index (artist_id),
-	primary key(id)
-) 
-
 create table data_time_metadata
 (
 	id bigint unsigned auto_increment,
@@ -49,7 +57,7 @@ create table data_time_metadata
 	index(data_time),
 	index(record_id),
 	primary key(id)
-)
+);
 
 delimiter $$
 create function RoundDateTime (input_dt datetime)
@@ -61,6 +69,7 @@ begin
 end;
 $$
 delimiter ;
+
 
 delimiter $$
 create trigger tracks_metadata

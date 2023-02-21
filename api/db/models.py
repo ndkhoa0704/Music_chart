@@ -24,7 +24,7 @@ class Tracks(Base):
 
 class Artists(Base):
     __tablename__ = 'artists'
-    id = Column(Integer,primary_key=True, index= True)
+    id = Column(Integer, primary_key=True, index=True)
     source = Column(String)
     artist_id = Column(String, index=True)
     name = Column(String)
@@ -36,3 +36,12 @@ class Genres(Base):
     id = Column(Integer, primary_key=True, index=True)
     track_id = Column(String, index=True)
     genre = Column(String)
+
+
+class User(Base):
+    __tablename__ = 'user_data'
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String)
+    password = Column(String)
+    email = Column(String)
+    

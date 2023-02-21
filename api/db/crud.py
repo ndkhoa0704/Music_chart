@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import func, Select, distinct
+from sqlalchemy import func, Select, insert
 from . import models
+from . import schemas
     
 
 def get_tracks(db: Session, source, track_id, release_date, chart_date, artist_id):
@@ -100,3 +101,19 @@ def get_genres(
         'artist_id': row[1].artist_id
         }, query.yield_per(1)))
     }
+
+
+def get_user(db: Session, username: str):
+    return db.query(models.User).filter(models.User.username==username).first()
+
+
+def create_user(db: Session, user: schemas.User):
+    db_user = models.User(
+        email=user.email, 
+        password=user.password, 
+        username=user.username
+    )
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    return db_user

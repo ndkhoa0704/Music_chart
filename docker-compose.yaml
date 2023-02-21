@@ -360,6 +360,7 @@ services:
       - 8000:8000
     environment:
       MYSQL_CONNECTION_URI: '${MYSQL_URI}'
+      SECRET_API_KEY: '${SECRET_API_KEY}'
     restart: always
     
 volumes:
