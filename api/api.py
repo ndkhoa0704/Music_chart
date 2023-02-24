@@ -13,6 +13,8 @@ from security import (
     get_hashed_password, 
     create_access_token
 )
+from typing import Union
+import os
 
 
 app = FastAPI()
@@ -55,18 +57,20 @@ def get_tracks(
     source: str | None = None,
     track_id: str | None = None,
     artist_id: str | None = None,
-    chart_date: str | None = Query(
-        default=datetime.now().isoformat(), 
+    chart_time: str | None = Query(
+        default=None, 
         regex=dt_isoformat_regex
     ),
+    limit: int | None = 50,
     user: schemas.User = Depends(get_current_user)
 ):
     return crud.get_tracks(
         db, track_id=track_id, 
         release_date=release_date, 
         source=source,
-        chart_date=chart_date,
-        artist_id=artist_id
+        chart_time=chart_time,
+        artist_id=artist_id,
+        limit=limit
     )       
 
 
@@ -80,30 +84,39 @@ def get_artists(
         default=datetime.now().isoformat(), 
         regex=dt_isoformat_regex
     ),
+    limit: int | None = 50,
     user: schemas.User = Depends(get_current_user)
 ):
     return crud.get_artists(
         db, track_id=track_id, chart_date=chart_date,
-        artist_id=artist_id, source=source
+        artist_id=artist_id, source=source, limit=limit
     )
 
-@app.get('/genre', response_model=schemas.ResponseModel)
+@app.get(
+    path='/genre', 
+    response_model=Union[
+        schemas.ResponseModel,
+        schemas.Genres, 
+        schemas.ArtistGenres, 
+        schemas.TrackGenres
+    ]
+)
+
 def get_genre(
     db: Session=Depends(get_db),
     track_id: str | None = Query(default=None, max_length=32),
     artist_id: str | None = Query(default=None, max_length=32),
+    limit: int | None = 50,
     user: schemas.User = Depends(get_current_user)
 ):
-    # if track_id is None and artist_id is None:
-        # return crud.get_all_genres(db)
-    
-    return crud.get_genres(db, track_id=track_id, artist_id=artist_id)
+    return crud.get_genres(db, track_id=track_id, artist_id=artist_id, limit=limit)
 
 
 @app.post('/token', response_model=schemas.Token)
-async def request_token(
-    db: Session = Depends(get_db), 
-    form_data: OAuth2PasswordRequestForm = Depends()):
+def request_token(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db)
+):
     cred_except = HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
@@ -122,10 +135,23 @@ async def request_token(
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@app.put('/newuser', status_code=status.HTTP_201_CREATED)
-async def create_user(*, db: Session = Depends(get_db), User: schemas.User):
+@app.put('/newuser', status_code=status.HTTP_201_CREATED, include_in_schema=True)
+async def create_user(*, 
+    db: Session = Depends(get_db),
+    secret_key: str | None,
+    User: schemas.User
+):    
+    if not verify_password(secret_key, os.getenv('SECRET_NEW_USER_KEY')):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+    
     User.password = get_hashed_password(User.password)
+    user = crud.get_user(db, User.username)
+    if user:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail='User already exists'
+        )
     user = crud.create_user(db, User)
     if not user:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)        
     return {"detail": "User created"}

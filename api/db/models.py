@@ -1,5 +1,5 @@
 from .database import Base
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean
 
 
 class metadata(Base):
@@ -20,7 +20,6 @@ class Tracks(Base):
     artist_id = Column(String, ForeignKey('artists.id'), index=True)
     name = Column(String)
     release_date = Column(DateTime)
-
 
 class Artists(Base):
     __tablename__ = 'artists'
@@ -44,4 +43,4 @@ class User(Base):
     username = Column(String)
     password = Column(String)
     email = Column(String)
-    
+    # isAdmin = Column(Boolean)
