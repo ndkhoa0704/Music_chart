@@ -1,4 +1,4 @@
-from sqlalchemy.orm import Session, aliased
+from sqlalchemy.orm import Session
 from sqlalchemy.sql.expression import Select, func
 from . import models
 from . import schemas
@@ -26,28 +26,28 @@ def get_tracks(db: Session, source, track_id, release_date, chart_time, artist_i
 
 
     result_query = db.query(
-            models.Tracks.source,
-            models.Tracks.duration, 
-            models.Tracks.popularity, 
-            models.Tracks.track_id, 
-            func.group_concat(models.Tracks.artist_id).label('artists'),
-            models.Tracks.name, 
-            models.Tracks.release_date,
-            models.metadata.data_time
-        ).join(
-            models.metadata, 
-            (models.metadata.record_id == models.Tracks.id) &
-            (models.metadata.record_type == 'tracks') &
-            (models.metadata.data_time == chart_time_local)
-        ).filter(*sql_filter).group_by(            
-            models.Tracks.source,
-            models.Tracks.duration, 
-            models.Tracks.popularity, 
-            models.Tracks.track_id, 
-            models.Tracks.name, 
-            models.Tracks.release_date,
-            models.metadata.data_time
-        )
+        models.Tracks.source,
+        models.Tracks.duration, 
+        models.Tracks.popularity, 
+        models.Tracks.track_id, 
+        func.group_concat(models.Tracks.artist_id).label('artists'),
+        models.Tracks.name, 
+        models.Tracks.release_date,
+        models.metadata.data_time
+    ).join(
+        models.metadata, 
+        (models.metadata.record_id == models.Tracks.id) &
+        (models.metadata.record_type == 'tracks') &
+        (models.metadata.data_time == chart_time_local)
+    ).filter(*sql_filter).group_by(
+        models.Tracks.source,
+        models.Tracks.duration, 
+        models.Tracks.popularity, 
+        models.Tracks.track_id, 
+        models.Tracks.name, 
+        models.Tracks.release_date,
+        models.metadata.data_time
+    )
     
     result = {
         'data': (list(map(lambda row: {

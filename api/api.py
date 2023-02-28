@@ -71,7 +71,7 @@ def get_tracks(
         chart_time=chart_time,
         artist_id=artist_id,
         limit=limit
-    )       
+    )
 
 
 @app.get('/artists', response_model=schemas.ResponseModel)
